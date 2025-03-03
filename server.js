@@ -5,12 +5,7 @@ const crypto = require('crypto');
 const cron = require('node-cron');
 const mongoose = require('mongoose');
 
-// For Node 18+ fetch is global; if not, you can import node-fetch
-// const fetch = require('node-fetch');
 
-// ------------------
-// MongoDB Setup
-// ------------------
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log("MongoDB connected"))
   .catch(err => console.error("MongoDB connection error", err));
@@ -25,18 +20,14 @@ const productSchema = new mongoose.Schema({
   productId: { type: Number, required: true },
   title: String,
   body_html: String,
-  // Add additional fields as needed
 }, { timestamps: true });
 
-// Create a text index for searching by title and body_html.
 productSchema.index({ shop: 1, title: 'text', body_html: 'text' });
 
 const Store = mongoose.model('Store', storeSchema);
 const Product = mongoose.model('Product', productSchema);
 
-// ------------------
-// Express App Setup
-// ------------------
+
 const app = express();
 app.use(express.json());
 
@@ -47,9 +38,6 @@ app.use(session({
   saveUninitialized: true,
 }));
 
-// ------------------
-// Helper Functions
-// ------------------
 
 /**
  * Fetch products from Shopify using the given shop and accessToken,
@@ -70,7 +58,6 @@ async function fetchAndSaveProducts(shop, accessToken) {
     const products = data.products || [];
     console.log(`[${new Date().toISOString()}] Fetched ${products.length} products from ${shop}`);
 
-    // Upsert each product (if exists, update; if not, create)
     for (const prod of products) {
       await Product.findOneAndUpdate(
         { shop, productId: prod.id },
@@ -88,20 +75,10 @@ async function fetchAndSaveProducts(shop, accessToken) {
   }
 }
 
-// ------------------
-// Routes
-// ------------------
-
-/**
- * GET /auth
- * Initiates the Shopify OAuth process.
- * Generates a random state, stores it in session, and redirects the browser to Shopify's OAuth URL.
- */
 app.get('/auth', (req, res) => {
   const { shop } = req.query;
   if (!shop) return res.status(400).send('Missing shop parameter.');
   
-  // Generate a random state value and store in session
   const state = crypto.randomBytes(16).toString('hex');
   req.session.oauthState = state;
 
@@ -115,19 +92,13 @@ app.get('/auth', (req, res) => {
   res.redirect(authUrl);
 });
 
-/**
- * GET /auth/callback
- * Handles Shopify's OAuth callback.
- * Verifies the state, exchanges the temporary code for an access token,
- * and saves the store information into MongoDB. Then fetches and saves products.
- */
+
 app.get('/auth/callback', async (req, res) => {
   const { shop, code, state } = req.query;
   if (state !== req.session.oauthState) {
     return res.status(400).send('Invalid state parameter.');
   }
   
-  // Exchange code for access token
   const tokenRequestUrl = `https://${shop}/admin/oauth/access_token`;
   const tokenPayload = {
     client_id: process.env.SHOPIFY_API_KEY,
@@ -153,7 +124,6 @@ app.get('/auth/callback', async (req, res) => {
     );
     console.log(`Store ${shop} installed/updated successfully.`);
 
-    // Fetch and save products for this store
     await fetchAndSaveProducts(shop, tokenData.access_token);
 
     res.redirect(`/?shop=${shop}`);
@@ -163,11 +133,6 @@ app.get('/auth/callback', async (req, res) => {
   }
 });
 
-/**
- * GET /
- * Home page that shows the number of products for the shop (if provided)
- * or a welcome message.
- */
 app.get('/', async (req, res) => {
   const { shop } = req.query;
   if (shop) {
@@ -186,19 +151,12 @@ app.get('/', async (req, res) => {
   }
 });
 
-/**
- * GET /search
- * Searches for products for a specific shop.
- * Query parameters:
- *  - shop: the store domain
- *  - q: the search query string (searches title and body_html)
- */
+
 app.get('/search', async (req, res) => {
   const { shop, q } = req.query;
   if (!shop) return res.status(400).send('Missing shop parameter.');
   if (!q) return res.status(400).send('Missing query parameter (q).');
 
-  // Perform a text search on products for the given shop
   const results = await Product.find({ 
     shop, 
     title: { $regex: q, $options: 'i' }
@@ -212,12 +170,7 @@ app.get('/search', async (req, res) => {
   });
 });
 
-// ------------------
-// Cron Job for Periodic Ingestion
-// ------------------
-/**
- * Every 5 minutes, iterate over all installed stores and refresh their products.
- */
+
 cron.schedule('*/5 * * * *', async () => {
   const stores = await Store.find({});
   if (!stores.length) {
@@ -230,9 +183,7 @@ cron.schedule('*/5 * * * *', async () => {
   }
 });
 
-// ------------------
-// Start the Server
-// ------------------
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`App running on port ${PORT}`);
